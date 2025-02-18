@@ -103,7 +103,7 @@ init_per_suite(C) ->
                 non_retryable_errors => []
             },
             task_scan_timeout => 1,
-            worker_pool_size => 100,
+            worker_pool_size => 600,
             process_step_timeout => 30
         }},
         {namespaces, #{

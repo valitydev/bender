@@ -53,16 +53,19 @@ bind(ExternalID, Schema, UserCtx, WoodyCtx) ->
 
 -spec get_internal_id(external_id(), woody_context()) -> {ok, internal_id(), user_context()} | no_return().
 get_internal_id(ExternalID, WoodyCtx) ->
-    case machinery:get(?NS, ExternalID, get_backend(WoodyCtx)) of
-        {ok, Machine} ->
-            #{
-                internal_id := InternalID,
-                user_context := UserCtx
-            } = get_machine_state(Machine),
-            {ok, InternalID, UserCtx};
-        {error, notfound} ->
-            throw({not_found, ExternalID})
-    end.
+    with_retry(get_retry_strategy(), fun() ->
+        maybe
+            {ok, Machine} ?= machinery:get(?NS, ExternalID, get_backend(WoodyCtx)),
+            #{internal_id := InternalID, user_context := UserCtx} ?= get_machine_state(Machine),
+            {done, {ok, InternalID, UserCtx}}
+        else
+            {error, notfound} ->
+                throw({not_found, ExternalID});
+            %% Retry if machine state is undefined
+            undefined ->
+                next
+        end
+    end).
 
 %%% Machinery callbacks
 
@@ -93,11 +96,34 @@ process_notification(_Args, _Machine, _HandlerArgs, _HandlerOpts) ->
 
 %%% Internal functions
 
+-spec get_retry_strategy() -> genlib_retry:strategy().
+get_retry_strategy() ->
+    Opts = genlib_app:env(bender, generator),
+    DefaultPolicy = genlib_retry:exponential(5, 2, {jitter, 200, 100}),
+    genlib_retry:new_strategy(maps:get(retry_policy, Opts, DefaultPolicy)).
+
+-spec with_retry(genlib_retry:strategy(), fun(() -> {done, T} | next)) -> T | no_return().
+with_retry(Strategy, Fun) ->
+    maybe
+        next ?= Fun(),
+        {wait, Timeout, NextStrategy} ?= genlib_retry:next_step(Strategy),
+        _ = timer:sleep(Timeout),
+        with_retry(NextStrategy, Fun)
+    else
+        {done, Result} ->
+            Result;
+        finish ->
+            erlang:error(retries_exhausted)
+    end.
+
 -spec start(external_id(), internal_id(), user_context(), woody_context()) -> ok | {error, exists}.
 start(ExternalID, InternalID, UserCtx, WoodyCtx) ->
     machinery:start(?NS, ExternalID, {InternalID, UserCtx}, get_backend(WoodyCtx)).
 
--spec get_machine_state(machine()) -> state().
+%% NOTE Underlying machinery backend can experience race condition on
+%% machine writes. Thus it MAY occur that 'aux_state' is undefined on
+%% machine read.
+-spec get_machine_state(machine()) -> state() | undefined.
 get_machine_state(#{aux_state := State}) ->
     State.
 
