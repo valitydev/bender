@@ -97,7 +97,7 @@ init_per_suite(C) ->
                 {storage, scoper_storage_logger}
             ]) ++
             genlib_app:start_application_with(bender, [
-                {machinery_backend, machinegun},
+                {machinery_backend, hybrid},
                 {sequence, #{
                     path => <<"/v1/stateproc/bender_sequence">>,
                     schema => machinery_mg_schema_generic,
