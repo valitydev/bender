@@ -11,6 +11,7 @@
         prometheus_cowboy,
         woody, % woody's hackney declares prometheus metrics on start
         scoper, % should be before any scoper event handler usage
+        progressor,
         machinery,
         erl_health,
         opentelemetry_api,
