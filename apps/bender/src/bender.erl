@@ -56,7 +56,7 @@ init([]) ->
             shutdown_timeout => get_shutdown_timeout(),
             event_handler => EventHandlers,
             handlers => get_handler_spec(),
-            additional_routes => get_routes(EventHandlers)
+            additional_routes => get_routes(EventHandlers, genlib_app:env(?MODULE, machinery_backend))
         }
     ),
     Flags = #{strategy => one_for_all, intensity => 6, period => 30},
@@ -101,8 +101,13 @@ get_handler_spec() ->
         }}
     ].
 
--spec get_routes(woody:ev_handlers()) -> [woody_server_thrift_http_handler:route(_)].
-get_routes(EventHandlers) ->
+-spec get_routes(woody:ev_handlers(), machinegun | progressor | hybrid) -> [woody_server_thrift_http_handler:route(_)].
+get_routes(_EventHandlers, progressor) ->
+    %% Shared routes
+    Check = enable_health_logging(genlib_app:env(?MODULE, health_check, #{})),
+    [erl_health_handle:get_route(Check), get_prometheus_route()];
+get_routes(EventHandlers, Mode) when Mode == machinegun orelse Mode == hybrid ->
+    %% Machinegun specific routes
     RouteOptsEnv = genlib_app:env(?MODULE, route_opts, #{}),
     RouteOpts = RouteOptsEnv#{event_handler => EventHandlers},
     Generator = genlib_app:env(bender, generator, #{}),
@@ -121,8 +126,7 @@ get_routes(EventHandlers) ->
             }
         }}
     ],
-    Check = enable_health_logging(genlib_app:env(?MODULE, health_check, #{})),
-    [erl_health_handle:get_route(Check), get_prometheus_route() | machinery_mg_backend:get_routes(Handlers, RouteOpts)].
+    get_routes(EventHandlers, progressor) ++ machinery_mg_backend:get_routes(Handlers, RouteOpts).
 
 -spec enable_health_logging(erl_health:check()) -> erl_health:check().
 enable_health_logging(Check) ->

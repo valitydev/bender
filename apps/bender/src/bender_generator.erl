@@ -48,7 +48,7 @@ bind(ExternalID, Schema, UserCtx, WoodyCtx) ->
         ok ->
             {ok, InternalID, undefined};
         {error, exists} ->
-            get_internal_id(ExternalID, WoodyCtx)
+            get_internal_id_with_retry(ExternalID, WoodyCtx)
     end.
 
 -spec get_internal_id(external_id(), woody_context()) -> {ok, internal_id(), user_context()} | no_return().
@@ -63,6 +63,20 @@ get_internal_id(ExternalID, WoodyCtx) ->
         {error, notfound} ->
             throw({not_found, ExternalID})
     end.
+
+-spec get_internal_id_with_retry(external_id(), woody_context()) -> {ok, internal_id(), user_context()} | no_return().
+get_internal_id_with_retry(ExternalID, WoodyCtx) ->
+    with_retry(get_retry_strategy(), fun() ->
+        try
+            {done, get_internal_id(ExternalID, WoodyCtx)}
+        catch
+            %% NOTE Underlying machinery backend can experience race
+            %% condition on machine writes. Thus it MAY occur that
+            %% 'aux_state' is undefined on machine read.
+            error:({badmatch, undefined}):_Stacktrace ->
+                retry
+        end
+    end).
 
 %%% Machinery callbacks
 
@@ -92,6 +106,27 @@ process_notification(_Args, _Machine, _HandlerArgs, _HandlerOpts) ->
     not_implemented(notification).
 
 %%% Internal functions
+
+-spec get_retry_strategy() -> genlib_retry:strategy().
+get_retry_strategy() ->
+    Opts = genlib_app:env(bender, generator),
+    DefaultPolicy = genlib_retry:exponential(5, 2, {jitter, 200, 100}),
+    genlib_retry:new_strategy(maps:get(retry_policy, Opts, DefaultPolicy)).
+
+-spec with_retry(genlib_retry:strategy(), fun(() -> {done, T} | retry)) -> T | no_return().
+with_retry(Strategy, Fun) ->
+    case Fun() of
+        {done, Result} ->
+            Result;
+        retry ->
+            case genlib_retry:next_step(Strategy) of
+                {wait, Timeout, NextStrategy} ->
+                    _ = timer:sleep(Timeout),
+                    with_retry(NextStrategy, Fun);
+                finish ->
+                    erlang:error(retries_exhausted)
+            end
+    end.
 
 -spec start(external_id(), internal_id(), user_context(), woody_context()) -> ok | {error, exists}.
 start(ExternalID, InternalID, UserCtx, WoodyCtx) ->
