@@ -112,7 +112,13 @@ start(SequenceID, Args, WoodyCtx) ->
 
 -spec call(id(), args(_), woody_context()) -> {ok, response(_)} | {error, notfound}.
 call(SequenceID, Msg, WoodyCtx) ->
-    machinery:call(?NS, SequenceID, Msg, get_backend(WoodyCtx)).
+    case machinery:call(?NS, SequenceID, Msg, get_backend(WoodyCtx)) of
+        {error, notfound} ->
+            timer:sleep(100),
+            call(SequenceID, Msg, WoodyCtx);
+        Result ->
+            Result
+    end.
 
 -spec get_state(id(), woody_context()) -> {ok, state()} | {error, notfound}.
 get_state(SequenceID, WoodyCtx) ->
