@@ -12,6 +12,7 @@
         woody, % woody's hackney declares prometheus metrics on start
         scoper, % should be before any scoper event handler usage
         progressor,
+        epg_migrator, %% should be after epg_connector (progressor)
         machinery,
         erl_health,
         opentelemetry_api,

@@ -43,6 +43,14 @@
 -spec bind(external_id(), schema(), user_context(), woody_context()) ->
     {ok, internal_id(), user_context()} | no_return().
 bind(ExternalID, Schema, UserCtx, WoodyCtx) ->
+    case backend_mode() of
+        machinery ->
+            bind_via_machinery(ExternalID, Schema, UserCtx, WoodyCtx);
+        postgres ->
+            bind_via_postgres(ExternalID, Schema, UserCtx, WoodyCtx)
+    end.
+
+bind_via_machinery(ExternalID, Schema, UserCtx, WoodyCtx) ->
     InternalID = generate(Schema, WoodyCtx),
     case start(ExternalID, InternalID, UserCtx, WoodyCtx) of
         ok ->
@@ -51,8 +59,39 @@ bind(ExternalID, Schema, UserCtx, WoodyCtx) ->
             get_internal_id_with_retry(ExternalID, WoodyCtx)
     end.
 
+bind_via_postgres(ExternalID, Schema, UserCtx, WoodyCtx) ->
+    InternalID = generate(Schema, WoodyCtx),
+    SQL = "INSERT INTO bender_generator_states (id, state) values ($1, $2) ON CONFLICT (id) DO NOTHING RETURNING state",
+    State = term_to_binary(
+        #{
+            internal_id => InternalID,
+            user_context => UserCtx
+        }
+    ),
+    Pool = application:get_env(bender, generator_pool, default_pool),
+    Result = epg_pool:query(Pool, SQL, [ExternalID, State]),
+    case Result of
+        {ok, _, _, []} ->
+            %% already inserted
+            get_internal_id_via_postgres(ExternalID, WoodyCtx);
+        {ok, _, _, [{_SavedState}]} ->
+            %% first insert
+            {ok, InternalID, undefined};
+        {error, _} = Error ->
+            logger:error("binding error: ~p", [Error]),
+            error({binding_error, Error})
+    end.
+
 -spec get_internal_id(external_id(), woody_context()) -> {ok, internal_id(), user_context()} | no_return().
 get_internal_id(ExternalID, WoodyCtx) ->
+    case backend_mode() of
+        machinery ->
+            get_internal_id_via_machinery(ExternalID, WoodyCtx);
+        postgres ->
+            get_internal_id_via_postgres(ExternalID, WoodyCtx)
+    end.
+
+get_internal_id_via_machinery(ExternalID, WoodyCtx) ->
     case machinery:get(?NS, ExternalID, get_backend(WoodyCtx)) of
         {ok, Machine} ->
             #{
@@ -62,6 +101,24 @@ get_internal_id(ExternalID, WoodyCtx) ->
             {ok, InternalID, UserCtx};
         {error, notfound} ->
             throw({not_found, ExternalID})
+    end.
+
+get_internal_id_via_postgres(ExternalID, _WoodyCtx) ->
+    Pool = application:get_env(bender, generator_pool, default_pool),
+    SQL = "SELECT state FROM bender_generator_states WHERE id = $1",
+    Result = epg_pool:query(Pool, SQL, [ExternalID]),
+    case Result of
+        {ok, _, []} ->
+            throw({not_found, ExternalID});
+        {ok, _, [{State}]} ->
+            #{
+                internal_id := InternalID,
+                user_context := UserCtx
+            } = binary_to_term(State),
+            {ok, InternalID, UserCtx};
+        {error, _} = Error ->
+            logger:error("read internal id error: ~p", [Error]),
+            error({internal_error, Error})
     end.
 
 -spec get_internal_id_with_retry(external_id(), woody_context()) -> {ok, internal_id(), user_context()} | no_return().
@@ -154,3 +211,6 @@ generate(#constant{internal_id = InternalID}, _WoodyCtx) ->
 generate(#sequence{id = SequenceID, minimum = Minimum}, WoodyCtx) ->
     {ok, IntegerID} = bender_sequence:get_next(SequenceID, Minimum, WoodyCtx),
     {integer_to_binary(IntegerID), IntegerID}.
+
+backend_mode() ->
+    application:get_env(bender, backend_mode, machinery).
