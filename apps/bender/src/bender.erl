@@ -37,7 +37,7 @@ stop() ->
 -spec start(normal, any()) -> {ok, pid()} | {error, any()}.
 start(_StartType, _StartArgs) ->
     ok = setup_metrics(),
-    ok = db_init(application:get_env(bender, migrations_enabled, true)),
+    ok = db_init(application:get_env(bender, backend_mode, machinery)),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 -spec stop(any()) -> ok.
@@ -147,7 +147,7 @@ setup_metrics() ->
     ok = woody_ranch_prometheus_collector:setup(),
     ok = woody_hackney_prometheus_collector:setup().
 
-db_init(true) ->
+db_init(postgres) ->
     case code:priv_dir(bender) of
         {error, _} ->
             error({migration_error, cant_find_priv_dir});
@@ -159,7 +159,7 @@ db_init(true) ->
             DbOpts = maps:get(DbRef, Databases),
             db_init(MigrationsDir, DbOpts)
     end;
-db_init(false) ->
+db_init(machinery) ->
     ok.
 
 db_init(MigrationsDir, DbOpts) ->

@@ -73,7 +73,6 @@ start_apps(BackendMode, C) ->
     BenderApps = genlib_app:start_application_with(bender, [
         {db_ref, default_db},
         {backend_mode, BackendMode},
-        {migrations_enabled, migrations_enabled(BackendMode)},
         {machinery_backend, hybrid},
         {generator, #{
             path => <<"/v1/stateproc/bender_generator">>,
@@ -103,8 +102,3 @@ start_apps(BackendMode, C) ->
     ]),
     Apps = EpgConnectorApps ++ ProgressorApps ++ ScoperApps ++ BenderApps,
     [{suite_apps, Apps} | C].
-
-migrations_enabled(machinery) ->
-    false;
-migrations_enabled(postgres) ->
-    true.
