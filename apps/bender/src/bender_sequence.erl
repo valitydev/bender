@@ -48,11 +48,32 @@
 
 -spec get_current(id(), woody_context()) -> {ok, value()} | {error, notfound}.
 get_current(SequenceID, WoodyCtx) ->
+    case backend_mode() of
+        machinery ->
+            get_current_via_machinery(SequenceID, WoodyCtx);
+        postgres ->
+            get_current_via_postgres(SequenceID, WoodyCtx)
+    end.
+
+get_current_via_machinery(SequenceID, WoodyCtx) ->
     case get_state(SequenceID, WoodyCtx) of
         {ok, State} ->
             {ok, get_value(State)};
         _ ->
             {error, notfound}
+    end.
+
+get_current_via_postgres(SequenceID, _WoodyCtx) ->
+    SQL = "SELECT value FROM bender_sequence_values WHERE id = $1",
+    Result = epg_pool:query(pg_pool(), SQL, [SequenceID]),
+    case Result of
+        {ok, _, []} ->
+            {error, notfound};
+        {ok, _, [{Value}]} ->
+            {ok, Value};
+        {error, _} = Error ->
+            logger:error("read sequence error: ~p", [Error]),
+            error({read_sequence_error, Error})
     end.
 
 -spec get_next(id(), woody_context()) -> {ok, value()}.
@@ -63,12 +84,33 @@ get_next(SequenceID, WoodyCtx) ->
 get_next(SequenceID, undefined, WoodyCtx) ->
     get_next(SequenceID, ?DEFAULT_INITIAL_VALUE, WoodyCtx);
 get_next(SequenceID, Minimum, WoodyCtx) ->
+    case backend_mode() of
+        machinery ->
+            get_next_via_machinery(SequenceID, Minimum, WoodyCtx);
+        postgres ->
+            get_next_via_postgres(SequenceID, Minimum, WoodyCtx)
+    end.
+
+get_next_via_machinery(SequenceID, Minimum, WoodyCtx) ->
     Args = #{initial_value => Minimum},
     case start(SequenceID, Args, WoodyCtx) of
         ok ->
             {ok, Minimum};
         {error, exists} ->
             call(SequenceID, {get_next, Minimum}, WoodyCtx)
+    end.
+
+get_next_via_postgres(SequenceID, Minimum, _WoodyCtx) ->
+    SQL =
+        "INSERT INTO bender_sequence_values (id, value) values ($1, $2) "
+        " ON CONFLICT (id) DO UPDATE SET value = GREATEST(bender_sequence_values.value + 1, $2) RETURNING value",
+    Result = epg_pool:query(pg_pool(), SQL, [SequenceID, Minimum]),
+    case Result of
+        {ok, _, _, [{Value}]} ->
+            {ok, Value};
+        {error, _} = Error ->
+            logger:error("sequence increment error: ~p", [Error]),
+            error({sequence_increment_error, Error})
     end.
 
 %%% Machinery callbacks
@@ -149,3 +191,9 @@ get_value(#{value := Value}) ->
 -spec set_value(state(), value()) -> state().
 set_value(State, Value) ->
     State#{value => Value}.
+
+backend_mode() ->
+    application:get_env(bender, backend_mode, machinery).
+
+pg_pool() ->
+    application:get_env(bender, sequence_pool, default_pool).
