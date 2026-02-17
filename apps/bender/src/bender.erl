@@ -21,6 +21,7 @@
 -export_type([schema/0]).
 
 -define(DB_REF, bender).
+-define(DEFAULT_MIGRATION_OPTS, [{batch_size, 5000}]).
 
 %% API
 
@@ -163,6 +164,11 @@ db_init(machinery) ->
     ok.
 
 db_init(MigrationsDir, DbOpts) ->
-    {ok, _} = epg_migrator:perform("generator", DbOpts, [], filename:join([MigrationsDir, "generator"])),
-    {ok, _} = epg_migrator:perform("sequence", DbOpts, [], filename:join([MigrationsDir, "sequence"])),
+    MigrationOpts = application:get_env(bender, migration_opts, ?DEFAULT_MIGRATION_OPTS),
+    logger:info("migrations for generator start"),
+    {ok, _} = epg_migrator:perform("generator", DbOpts, MigrationOpts, filename:join([MigrationsDir, "generator"])),
+    logger:info("migrations for generator success"),
+    logger:info("migrations for sequence start"),
+    {ok, _} = epg_migrator:perform("sequence", DbOpts, MigrationOpts, filename:join([MigrationsDir, "sequence"])),
+    logger:info("migrations for sequence success"),
     ok.

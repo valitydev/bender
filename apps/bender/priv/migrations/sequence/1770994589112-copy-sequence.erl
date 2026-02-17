@@ -3,8 +3,9 @@
 -export([perform/2]).
 
 -spec perform(_, _) -> _.
-perform(Connection, _MigrationOpts) ->
-    perform_batch(Connection, 0, 100).
+perform(Connection, MigrationOpts) ->
+    BatchSize = proplists:get_value(batch_size, MigrationOpts, 5000),
+    perform_batch(Connection, 0, BatchSize).
 
 perform_batch(Connection, Offset, Limit) ->
     SQL = "SELECT process_id, aux_state FROM bender_sequence_processes ORDER BY created_at OFFSET $1 LIMIT $2",
