@@ -20,6 +20,9 @@
 
 -export_type([schema/0]).
 
+-define(DB_REF, bender).
+-define(DEFAULT_MIGRATION_OPTS, [{batch_size, 5000}]).
+
 %% API
 
 -spec start() -> {ok, [atom()]} | {error, {atom(), term()}}.
@@ -35,6 +38,7 @@ stop() ->
 -spec start(normal, any()) -> {ok, pid()} | {error, any()}.
 start(_StartType, _StartArgs) ->
     ok = setup_metrics(),
+    ok = db_init(application:get_env(bender, backend_mode, machinery)),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 -spec stop(any()) -> ok.
@@ -143,3 +147,28 @@ get_prometheus_route() ->
 setup_metrics() ->
     ok = woody_ranch_prometheus_collector:setup(),
     ok = woody_hackney_prometheus_collector:setup().
+
+db_init(postgres) ->
+    case code:priv_dir(bender) of
+        {error, _} ->
+            error({migration_error, cant_find_priv_dir});
+        Path ->
+            MigrationsDir = filename:join([Path, "migrations"]),
+            DbRef = application:get_env(bender, db_ref, ?DB_REF),
+            %% only happy path, let it crash otherwise
+            {ok, Databases} = application:get_env(epg_connector, databases),
+            DbOpts = maps:get(DbRef, Databases),
+            db_init(MigrationsDir, DbOpts)
+    end;
+db_init(machinery) ->
+    ok.
+
+db_init(MigrationsDir, DbOpts) ->
+    MigrationOpts = application:get_env(bender, migration_opts, ?DEFAULT_MIGRATION_OPTS),
+    logger:info("migrations for generator start"),
+    {ok, _} = epg_migrator:perform("generator", DbOpts, MigrationOpts, filename:join([MigrationsDir, "generator"])),
+    logger:info("migrations for generator success"),
+    logger:info("migrations for sequence start"),
+    {ok, _} = epg_migrator:perform("sequence", DbOpts, MigrationOpts, filename:join([MigrationsDir, "sequence"])),
+    logger:info("migrations for sequence success"),
+    ok.

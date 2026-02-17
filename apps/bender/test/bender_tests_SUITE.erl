@@ -4,6 +4,8 @@
 -export([groups/0]).
 -export([init_per_suite/1]).
 -export([end_per_suite/1]).
+-export([init_per_group/2]).
+-export([end_per_group/2]).
 -export([init_per_testcase/2]).
 -export([end_per_testcase/2]).
 
@@ -30,9 +32,8 @@
 -spec all() -> [test_case_name() | {group, group_name()}].
 all() ->
     [
-        {group, main},
-        {group, contention},
-        {group, retrieve_id}
+        {group, machinery},
+        {group, postgres}
     ].
 
 -define(PARALLEL_WORKERS, 100).
@@ -41,6 +42,16 @@ all() ->
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
     [
+        {machinery, [], [
+            {group, main},
+            {group, contention},
+            {group, retrieve_id}
+        ]},
+        {postgres, [], [
+            {group, main},
+            {group, contention},
+            {group, retrieve_id}
+        ]},
         {main, [parallel], [
             {group, constant},
             {group, sequence},
@@ -65,107 +76,23 @@ groups() ->
 
 -spec init_per_suite(config()) -> config().
 init_per_suite(C) ->
-    %% _ = dbg:tracer(),
-    %% _ = dbg:p(all, c),
-    %% _ = dbg:tpl({'progressor', 'get', '_'}, x),
-    EpgConnectorApps = genlib_app:start_application_with(epg_connector, [
-        {databases, #{
-            default_db => #{
-                host => "postgres",
-                port => 5432,
-                database => "progressor_db",
-                username => "progressor",
-                password => "progressor"
-            }
-        }},
-        {pools, #{
-            default_pool => #{
-                database => default_db,
-                size => 30
-            }
-        }}
-    ]),
-    ProgressorApps = genlib_app:start_application_with(progressor, [
-        {call_wait_timeout, 20},
-        {defaults, #{
-            storage => #{
-                client => prg_pg_backend,
-                options => #{
-                    pool => default_pool
-                }
-            },
-            retry_policy => #{
-                initial_timeout => 5,
-                backoff_coefficient => 1.0,
-                %% seconds
-                max_timeout => 180,
-                max_attempts => 3,
-                non_retryable_errors => []
-            },
-            task_scan_timeout => 1,
-            worker_pool_size => 1000,
-            process_step_timeout => 30
-        }},
-        {namespaces, #{
-            'bender_generator' => #{
-                processor => #{
-                    client => machinery_prg_backend,
-                    options => #{
-                        namespace => 'bender_generator',
-                        handler => {bender_generator, #{}},
-                        schema => machinery_mg_schema_generic
-                    }
-                }
-            },
-            'bender_sequence' => #{
-                processor => #{
-                    client => machinery_prg_backend,
-                    options => #{
-                        namespace => 'bender_sequence',
-                        handler => {bender_sequence, #{}},
-                        schema => machinery_mg_schema_generic
-                    }
-                }
-            }
-        }}
-    ]),
-    ScoperApps = genlib_app:start_application_with(scoper, [
-        {storage, scoper_storage_logger}
-    ]),
-    BenderApps = genlib_app:start_application_with(bender, [
-        {machinery_backend, hybrid},
-        {generator, #{
-            path => <<"/v1/stateproc/bender_generator">>,
-            schema => machinery_mg_schema_generic,
-            url => <<"http://machinegun:8022/v1/automaton">>,
-            event_handler => scoper_woody_event_handler,
-            transport_opts => #{
-                max_connections => 1000
-            }
-        }},
-        {sequence, #{
-            path => <<"/v1/stateproc/bender_sequence">>,
-            schema => machinery_mg_schema_generic,
-            url => <<"http://machinegun:8022/v1/automaton">>,
-            event_handler => scoper_woody_event_handler,
-            transport_opts => #{
-                max_connections => 1000
-            }
-        }},
-        {protocol_opts, #{
-            timeout => 60000
-        }},
-        {transport_opts, #{
-            max_connections => 10000,
-            num_acceptors => 100
-        }}
-    ]),
-    Apps = EpgConnectorApps ++ ProgressorApps ++ ScoperApps ++ BenderApps,
-    [{suite_apps, Apps} | C].
+    C.
 
 -spec end_per_suite(config()) -> ok.
-end_per_suite(C) ->
-    genlib_app:stop_unload_applications(?CONFIG(suite_apps, C)).
+end_per_suite(_C) ->
+    ok.
+
+-spec init_per_group(atom(), config()) -> config().
+init_per_group(Group, C) when Group =:= machinery; Group =:= postgres ->
+    bender_ct_helper:start_apps(Group, C);
+init_per_group(_Group, C) ->
+    C.
+
+-spec end_per_group(atom(), config()) -> ok.
+end_per_group(Group, C) when Group =:= machinery; Group =:= postgres ->
+    genlib_app:stop_unload_applications(?CONFIG(suite_apps, C));
+end_per_group(_Group, _C) ->
+    ok.
 
 -spec init_per_testcase(atom(), config()) -> config().
 init_per_testcase(_Name, C) ->
