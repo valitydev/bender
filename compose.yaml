@@ -37,9 +37,6 @@ services:
       POSTGRES_DB: "progressor_db"
       POSTGRES_USER: "progressor"
       POSTGRES_PASSWORD: "progressor"
-      PGDATA: "/tmp/postgresql/data/pgdata"
-    volumes:
-      - progressor-data:/tmp/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
@@ -54,6 +51,3 @@ services:
         limits:
           cpus: '1'
           memory: 4G
-
-volumes:
-  progressor-data:
