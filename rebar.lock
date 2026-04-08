@@ -27,7 +27,7 @@
   2},
  {<<"epg_migrator">>,
   {git,"https://github.com/valitydev/epg_migrator.git",
-       {ref,"fabc42e2ae5905270b768560c8901f8e1b81274b"}},
+       {ref,"8633c43fb4d022355c1498c0effa9ecf4098a67f"}},
   0},
  {<<"epgsql">>,{pkg,<<"epgsql">>,<<"4.7.1">>},1},
  {<<"erl_health">>,
