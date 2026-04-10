@@ -15,12 +15,20 @@ perform_batch(Connection, Offset, Limit) ->
         {ok, _, Rows} ->
             Values = lists:foldl(
                 fun
-                    ({ID, AuxState}, "") ->
-                        #{value := Value} = binary_to_term(AuxState),
-                        " ('" ++ unicode:characters_to_list(ID) ++ "', " ++ integer_to_list(Value) ++ ") ";
+                    ({ID, AuxState}, "" = Acc) ->
+                        case value(ID, AuxState) of
+                            {ok, Value} ->
+                                " ('" ++ unicode:characters_to_list(ID) ++ "', " ++ integer_to_list(Value) ++ ") ";
+                            {error, _} ->
+                                Acc
+                        end;
                     ({ID, AuxState}, Acc) ->
-                        #{value := Value} = binary_to_term(AuxState),
-                        " ('" ++ unicode:characters_to_list(ID) ++ "', " ++ integer_to_list(Value) ++ "), " ++ Acc
+                        case value(ID, AuxState) of
+                            {ok, Value} ->
+                                " ('" ++ unicode:characters_to_list(ID) ++ "', " ++ integer_to_list(Value) ++ "), " ++ Acc;
+                            {error, _} ->
+                                Acc
+                        end
                 end,
                 "",
                 Rows
@@ -30,4 +38,20 @@ perform_batch(Connection, Offset, Limit) ->
                 "INSERT INTO bender_sequence_values (id, value) VALUES " ++ Values
             ),
             perform_batch(Connection, Offset + erlang:length(Rows), Limit)
+    end.
+
+value(ID, null) ->
+    logger:warning("migration. sequence ~p state is null", [ID]),
+    {error, state_is_null};
+value(ID, AuxState) when is_binary(AuxState) ->
+    try binary_to_term(AuxState) of
+        #{value := Value} ->
+            {ok, Value};
+        BadState ->
+            logger:warning("migration. sequence ~p bad state: ~p", [ID, BadState]),
+            {error, bad_state}
+    catch
+        _Error:_Term:_Stack ->
+            logger:warning("migration. sequence ~p bad state: ~p", [ID, AuxState]),
+            {error, bad_state}
     end.
