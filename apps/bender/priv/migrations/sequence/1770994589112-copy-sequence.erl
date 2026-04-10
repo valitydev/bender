@@ -41,17 +41,17 @@ perform_batch(Connection, Offset, Limit) ->
     end.
 
 value(ID, null) ->
-    logger:warning("migration. sequence ~p state is null", [ID]),
+    logger:warning("migrations. sequence ~p state is null", [ID]),
     {error, state_is_null};
 value(ID, AuxState) when is_binary(AuxState) ->
     try binary_to_term(AuxState) of
         #{value := Value} ->
             {ok, Value};
         BadState ->
-            logger:warning("migration. sequence ~p bad state: ~p", [ID, BadState]),
+            logger:warning("migrations. sequence ~p bad state: ~p", [ID, BadState]),
             {error, bad_state}
     catch
         _Error:_Term:_Stack ->
-            logger:warning("migration. sequence ~p bad state: ~p", [ID, AuxState]),
+            logger:warning("migrations. sequence ~p bad state: ~p", [ID, AuxState]),
             {error, bad_state}
     end.
