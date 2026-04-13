@@ -35,7 +35,9 @@ perform_batch(Connection, Offset, Limit) ->
             ),
             {ok, _} = epg_pool:query(
                 Connection,
-                "INSERT INTO bender_sequence_values (id, value) VALUES " ++ Values
+                "INSERT INTO bender_sequence_values (id, value) VALUES " ++ Values ++
+                "  ON CONFLICT (id) DO UPDATE "
+                "  SET value = GREATEST(EXCLUDED.value, bender_sequence_values.value)"
             ),
             perform_batch(Connection, Offset + erlang:length(Rows), Limit)
     end.
