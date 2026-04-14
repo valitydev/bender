@@ -8,7 +8,7 @@ perform(Connection, MigrationOpts) ->
     perform_batch(Connection, 0, BatchSize).
 
 perform_batch(Connection, Offset, Limit) ->
-    SQL = "SELECT process_id, aux_state FROM bender_sequence_processes ORDER BY created_at OFFSET $1 LIMIT $2",
+    SQL = "SELECT process_id, aux_state FROM bender_sequence_processes ORDER BY ctid OFFSET $1 LIMIT $2",
     case epg_pool:query(Connection, SQL, [Offset, Limit]) of
         {ok, _, []} ->
             ok;
@@ -35,9 +35,7 @@ perform_batch(Connection, Offset, Limit) ->
             ),
             {ok, _} = epg_pool:query(
                 Connection,
-                "INSERT INTO bender_sequence_values (id, value) VALUES " ++ Values ++
-                "  ON CONFLICT (id) DO UPDATE "
-                "  SET value = GREATEST(EXCLUDED.value, bender_sequence_values.value)"
+                "INSERT INTO bender_sequence_values (id, value) VALUES " ++ Values
             ),
             perform_batch(Connection, Offset + erlang:length(Rows), Limit)
     end.
