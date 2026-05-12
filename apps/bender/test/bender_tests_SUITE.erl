@@ -17,7 +17,6 @@
 -export([different_schemas/1]).
 -export([contention/1]).
 
--export([generator_init/1]).
 -export([retrieve_unknown_id/1]).
 -export([retrieve_known_id/1]).
 
@@ -32,7 +31,6 @@
 -spec all() -> [test_case_name() | {group, group_name()}].
 all() ->
     [
-        {group, machinery},
         {group, postgres}
     ].
 
@@ -42,11 +40,6 @@ all() ->
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
     [
-        {machinery, [], [
-            {group, main},
-            {group, contention},
-            {group, retrieve_id}
-        ]},
         {postgres, [], [
             {group, main},
             {group, contention},
@@ -57,14 +50,12 @@ groups() ->
             {group, sequence},
             sequence_minimum,
             {group, snowflake},
-            {group, different_schemas},
-            {group, generator_init}
+            {group, different_schemas}
         ]},
         {constant, [parallel], [constant || _ <- lists:seq(1, ?PARALLEL_WORKERS)]},
         {sequence, [parallel], [sequence || _ <- lists:seq(1, ?PARALLEL_WORKERS)]},
         {snowflake, [parallel], [snowflake || _ <- lists:seq(1, ?PARALLEL_WORKERS)]},
         {different_schemas, [parallel], [different_schemas || _ <- lists:seq(1, ?PARALLEL_WORKERS)]},
-        {generator_init, [parallel], [generator_init || _ <- lists:seq(1, ?PARALLEL_WORKERS)]},
         {contention, [{repeat_until_all_ok, 10}], [
             contention
         ]},
@@ -83,13 +74,13 @@ end_per_suite(_C) ->
     ok.
 
 -spec init_per_group(atom(), config()) -> config().
-init_per_group(Group, C) when Group =:= machinery; Group =:= postgres ->
-    bender_ct_helper:start_apps(Group, C);
+init_per_group(Group, C) when Group =:= postgres ->
+    bender_ct_helper:start_apps(C);
 init_per_group(_Group, C) ->
     C.
 
 -spec end_per_group(atom(), config()) -> ok.
-end_per_group(Group, C) when Group =:= machinery; Group =:= postgres ->
+end_per_group(Group, C) when Group =:= postgres ->
     genlib_app:stop_unload_applications(?CONFIG(suite_apps, C));
 end_per_group(_Group, _C) ->
     ok.
@@ -197,38 +188,6 @@ contention(C) ->
         {{ExternalID, InternalID, {bin, BinaryCtx}}, _OtherUserCtx}
     ] = lists:ukeysort(1, Result),
     UserCtxOfWinner = binary_to_term(BinaryCtx),
-    ok.
-
--include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
-
--spec generator_init(config()) -> ok.
-generator_init(_C) ->
-    Request = #mg_stateproc_SignalArgs{
-        signal = {
-            init,
-            #mg_stateproc_InitSignal{
-                arg = {arr, [{str, <<"tup">>}, {str, <<"snowflake">>}, {bin, <<"user context">>}]}
-            }
-        },
-        machine = #mg_stateproc_Machine{
-            ns = <<"bender_generator">>,
-            id = <<"42">>,
-            history = [],
-            history_range = #mg_stateproc_HistoryRange{},
-            aux_state = #mg_stateproc_Content{data = {bin, <<>>}},
-            timer = undefined
-        }
-    },
-    Call = {{mg_proto_state_processing_thrift, 'Processor'}, 'ProcessSignal', {Request}},
-    Options = #{
-        url => <<"http://localhost:8022/v1/stateproc/bender_generator">>,
-        event_handler => scoper_woody_event_handler,
-        transport_opts => #{
-            checkout_timeout => 1000,
-            max_connections => 10000
-        }
-    },
-    {ok, _Result} = woody_client:call(Call, Options),
     ok.
 
 -spec retrieve_unknown_id(config()) -> ok.
