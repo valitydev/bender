@@ -38,7 +38,7 @@ stop() ->
 -spec start(normal, any()) -> {ok, pid()} | {error, any()}.
 start(_StartType, _StartArgs) ->
     ok = setup_metrics(),
-    ok = db_init(application:get_env(bender, backend_mode, machinery)),
+    ok = db_init(),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 -spec stop(any()) -> ok.
@@ -60,7 +60,7 @@ init([]) ->
             shutdown_timeout => get_shutdown_timeout(),
             event_handler => EventHandlers,
             handlers => get_handler_spec(),
-            additional_routes => get_routes(EventHandlers, genlib_app:env(?MODULE, machinery_backend))
+            additional_routes => get_routes(EventHandlers)
         }
     ),
     Flags = #{strategy => one_for_all, intensity => 6, period => 30},
@@ -105,32 +105,11 @@ get_handler_spec() ->
         }}
     ].
 
--spec get_routes(woody:ev_handlers(), machinegun | progressor | hybrid) -> [woody_server_thrift_http_handler:route(_)].
-get_routes(_EventHandlers, progressor) ->
+-spec get_routes(woody:ev_handlers()) -> [woody_server_thrift_http_handler:route(_)].
+get_routes(_EventHandlers) ->
     %% Shared routes
     Check = enable_health_logging(genlib_app:env(?MODULE, health_check, #{})),
-    [erl_health_handle:get_route(Check), get_prometheus_route()];
-get_routes(EventHandlers, Mode) when Mode == machinegun orelse Mode == hybrid ->
-    %% Machinegun specific routes
-    RouteOptsEnv = genlib_app:env(?MODULE, route_opts, #{}),
-    RouteOpts = RouteOptsEnv#{event_handler => EventHandlers},
-    Generator = genlib_app:env(bender, generator, #{}),
-    Sequence = genlib_app:env(bender, sequence, #{}),
-    Handlers = [
-        {bender_generator, #{
-            path => maps:get(path, Generator, <<"/v1/stateproc/bender_generator">>),
-            backend_config => #{
-                schema => maps:get(schema, Generator, machinery_mg_schema_generic)
-            }
-        }},
-        {bender_sequence, #{
-            path => maps:get(path, Sequence, <<"/v1/stateproc/bender_sequence">>),
-            backend_config => #{
-                schema => maps:get(schema, Sequence, machinery_mg_schema_generic)
-            }
-        }}
-    ],
-    get_routes(EventHandlers, progressor) ++ machinery_mg_backend:get_routes(Handlers, RouteOpts).
+    [erl_health_handle:get_route(Check), get_prometheus_route()].
 
 -spec enable_health_logging(erl_health:check()) -> erl_health:check().
 enable_health_logging(Check) ->
@@ -148,7 +127,7 @@ setup_metrics() ->
     ok = woody_ranch_prometheus_collector:setup(),
     ok = woody_hackney_prometheus_collector:setup().
 
-db_init(postgres) ->
+db_init() ->
     case code:priv_dir(bender) of
         {error, _} ->
             error({migration_error, cant_find_priv_dir});
@@ -159,9 +138,7 @@ db_init(postgres) ->
             {ok, Databases} = application:get_env(epg_connector, databases),
             DbOpts = maps:get(DbRef, Databases),
             db_init(MigrationsDir, DbOpts)
-    end;
-db_init(machinery) ->
-    ok.
+    end.
 
 db_init(MigrationsDir, DbOpts) ->
     MigrationOpts = application:get_env(bender, migration_opts, ?DEFAULT_MIGRATION_OPTS),

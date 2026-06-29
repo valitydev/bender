@@ -25,7 +25,6 @@
 -spec all() -> [test_case_name() | {group, group_name()}].
 all() ->
     [
-        {group, machinery},
         {group, postgres}
     ].
 
@@ -34,7 +33,6 @@ all() ->
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
     [
-        {machinery, [], [{group, main}]},
         {postgres, [], [{group, main}]},
         {main, [parallel], [
             sequence,
@@ -53,13 +51,13 @@ end_per_suite(_C) ->
     ok.
 
 -spec init_per_group(atom(), config()) -> config().
-init_per_group(Group, C) when Group =:= machinery; Group =:= postgres ->
-    bender_ct_helper:start_apps(Group, C);
+init_per_group(Group, C) when Group =:= postgres ->
+    bender_ct_helper:start_apps(C);
 init_per_group(_Group, C) ->
     C.
 
 -spec end_per_group(atom(), config()) -> ok.
-end_per_group(Group, C) when Group =:= machinery; Group =:= postgres ->
+end_per_group(Group, C) when Group =:= postgres ->
     genlib_app:stop_unload_applications(?CONFIG(suite_apps, C));
 end_per_group(_Group, _C) ->
     ok.
